@@ -147,8 +147,12 @@ static int http_read_request(SSL *ssl, char *method, int msize,
     method[msize - 1] = path[psize - 1] = '\0';
     *clen = 0;
     while (ssl_readline(ssl, line, sizeof line) > 0) {
-        if (strncasecmp(line, "Content-Length:", 15) == 0)
-            *clen = atoi(line + 15);
+        if (strncasecmp(line, "Content-Length:", 15) == 0) {
+            char *end;
+            long v = strtol(line + 15, &end, 10);
+            if (end != line + 15 && v > 0 && v < HTTP_BUF)
+                *clen = (int)v;
+        }
     }
     return 0;
 }
