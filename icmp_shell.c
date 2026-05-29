@@ -6,7 +6,7 @@
  * and reassembled in order by the client.
  *
  * Compile:
- *   gcc -O2 -Wall -Wextra -o icmp_shell icmp_shell.c
+ *   gcc -O2 -Wall -Wextra -std=c17 -o icmp_shell icmp_shell.c
  *
  * Run (root required for raw sockets):
  *   sudo ./icmp_shell server
@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <limits.h>
 #include <errno.h>
 #include <time.h>
 #include <unistd.h>
@@ -51,6 +52,11 @@ static const uint8_t MAGIC[4] = {0xDE, 0xAD, 0xBE, 0xEF};
 #define OUTPUT_MAX     (CHUNK_SIZE * MAX_CHUNKS)   /* ~76 KB */
 #define CMD_MAX        3800u
 #define RECV_BUF       65536u
+
+_Static_assert(CHUNK_SIZE <= 1400,   "CHUNK_SIZE > 1400 risks IP fragmentation");
+_Static_assert(MAX_CHUNKS <= 256,    "MAX_CHUNKS exceeds uint8 index range");
+_Static_assert(OUTPUT_MAX < INT_MAX, "OUTPUT_MAX must fit in int");
+_Static_assert(CMD_MAX < RECV_BUF,   "CMD_MAX must be smaller than receive buffer");
 
 /* ── ICMP helpers ─────────────────────────────────────────────────────── */
 

@@ -5,7 +5,7 @@
  * picks up a base64-encoded command, executes it, and POSTs base64 output to /r.
  *
  * Compile (macOS / Linux):
- *   gcc -O2 -Wall -Wextra -o https_shell https_shell.c \
+ *   gcc -O2 -Wall -Wextra -std=c17 -o https_shell https_shell.c \
  *       $(pkg-config --cflags --libs openssl) -lpthread
  *
  * Generate cert before running the server:
@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <limits.h>
 #include <errno.h>
 #include <time.h>
 #include <unistd.h>
@@ -45,6 +46,10 @@
 #define OUTPUT_MAX     65536
 #define HTTP_BUF       (OUTPUT_MAX * 2)   /* enough for base64 + headers */
 #define FAKE_SERVER    "nginx/1.24.0"
+
+_Static_assert(HTTP_BUF > OUTPUT_MAX,  "HTTP_BUF must exceed OUTPUT_MAX to hold base64");
+_Static_assert(OUTPUT_MAX < INT_MAX,   "OUTPUT_MAX must fit in int");
+_Static_assert(CMD_MAX < HTTP_BUF,     "CMD_MAX must be smaller than HTTP buffer");
 
 /* ── base64 ──────────────────────────────────────────────────────────────── */
 
@@ -590,7 +595,7 @@ static void do_client(const char *host, int port)
 
 /* ── main ────────────────────────────────────────────────────────────────── */
 
-static void usage(const char *prog)
+_Noreturn static void usage(const char *prog)
 {
     fprintf(stderr,
         "usage: %s server [--port N] --cert cert.pem --key key.pem\n"

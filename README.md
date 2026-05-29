@@ -13,11 +13,12 @@ DNS TXT records, and HTTPS.  Each protocol has a Python version and a C version.
 | File | Language | Protocol |
 |------|----------|----------|
 | `icmp_shell.py`  | Python 3 | ICMP echo request/reply |
-| `icmp_shell.c`   | C (C99)  | ICMP echo request/reply |
+| `icmp_shell.c`   | C (C17)  | ICMP echo request/reply |
 | `dns_shell.py`   | Python 3 | DNS TXT over UDP |
-| `dns_shell.c`    | C (C99)  | DNS TXT over UDP |
+| `dns_shell.c`    | C (C17)  | DNS TXT over UDP |
 | `https_shell.py` | Python 3 | HTTPS (TLS, beaconing C2) |
-| `https_shell.c`  | C (C99)  | HTTPS (TLS, beaconing C2) |
+| `https_shell.c`  | C (C17)  | HTTPS (TLS, beaconing C2) |
+| `Makefile`       | Make     | Builds all C targets |
 | `test_https.sh`  | Bash     | Smoke test for https_shell.py |
 
 ---
@@ -82,10 +83,21 @@ The C version requires a pre-generated cert (one openssl command).
 
 ## Build (C versions)
 
+All C code targets **C17** (`-std=c17`) and uses `_Static_assert` to catch
+bad buffer assumptions at compile time.  The HTTPS shell additionally uses
+`_Noreturn` on its `usage()` function.
+
+**Build all with make (recommended):**
 ```bash
-gcc -O2 -Wall -o icmp_shell  icmp_shell.c
-gcc -O2 -Wall -o dns_shell   dns_shell.c
-gcc -O2 -Wall -o https_shell https_shell.c \
+make          # builds icmp_shell, dns_shell, https_shell
+make clean    # remove binaries
+```
+
+**Or build individually:**
+```bash
+gcc -O2 -Wall -Wextra -std=c17 -o icmp_shell  icmp_shell.c
+gcc -O2 -Wall -Wextra -std=c17 -o dns_shell   dns_shell.c
+gcc -O2 -Wall -Wextra -std=c17 -o https_shell https_shell.c \
     $(pkg-config --cflags --libs openssl) -lpthread
 ```
 

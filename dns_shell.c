@@ -15,7 +15,7 @@
  * UDP packets directly to the server IP.
  *
  * Compile:
- *   gcc -O2 -Wall -Wextra -o dns_shell dns_shell.c
+ *   gcc -O2 -Wall -Wextra -std=c17 -o dns_shell dns_shell.c
  *
  * Run (port 5353 for unprivileged; 53 requires root):
  *   ./dns_shell server [port]
@@ -45,6 +45,10 @@
 #define OUTPUT_MAX      2800    /* raw bytes; base64 fits comfortably in 4 KB */
 #define CMD_MAX         118     /* max command bytes that fit in one qname */
 #define DEFAULT_PORT    5353
+
+_Static_assert(OUTPUT_MAX < DNS_MAX_UDP, "OUTPUT_MAX must fit in one DNS UDP datagram");
+_Static_assert(CMD_MAX <= 118,           "CMD_MAX exceeds DNS qname label budget");
+_Static_assert(DNS_MAX_NAME >= 253,      "DNS_MAX_NAME too small for max FQDN length");
 
 /* ── base32 encode / decode ───────────────────────────────────────────── */
 
